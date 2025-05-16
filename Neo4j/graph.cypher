@@ -1,7 +1,6 @@
 // -----------------------------
 // Yelp Graph Schema for Neo4j
 // -----------------------------
-// Author: Sumanth Reddy
 // Purpose: Build a fully connected, production-grade Neo4j graph from Yelp datasets
 // Datasets: business.csv, user.csv, review.csv, business_geo.csv, business_category.csv, business_feature.csv, friendships.csv
 
