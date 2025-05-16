@@ -124,6 +124,8 @@ It handles renaming overlapping columns, joining on keys (business_id, user_id),
 
 **Orchestrating ETL Workflows with Databricks Jobs:**
 
+<img width="822" alt="Screenshot 2025-05-16 at 1 55 20 AM" src="https://github.com/user-attachments/assets/14565a6c-6f22-4ec8-8ade-b02d98c743e4" />
+
 We created a multi-task job in the Databricks Jobs UI.
 
 The job includes the four notebooks as tasks:
@@ -196,6 +198,8 @@ An IAM role should be given to this crawler attaching the plolocies to read from
 
 As mentioned earlier, the Lambda function not only triggers Databricks jobs but also includes a small function to invoke the Glue Crawler. This crawler is executed after the ETL process finishes and ensures that the database catalog always reflects the most recent state of the Parquet data.
 
+<img width="1182" alt="Screenshot 2025-05-16 at 1 57 15 AM" src="https://github.com/user-attachments/assets/4ae7e039-d6a3-4cf1-a5aa-602d9f5a819f" />
+
 This means:
 
 Whenever a new object (JSON file) is added to the S3 raw bucket, the ETL pipeline is triggered.
@@ -215,6 +219,8 @@ Navigate to the database (e.g., yelp_db).
 Find the unifiedanalytics table.
 
 Run SQL queries directly to verify and analyze the data.
+
+<img width="1470" alt="Screenshot 2025-05-16 at 1 58 45 AM" src="https://github.com/user-attachments/assets/d7515f71-0bf7-4cd5-8431-59a6a44ce425" />
 
 Example:
 
@@ -251,6 +257,8 @@ Sentiment trends by city or category
 Reviewer activity and engagement scores
 
 Distribution of elite reviewers across locations
+
+<img width="1470" alt="Screenshot 2025-05-16 at 1 59 48 AM" src="https://github.com/user-attachments/assets/d539e511-590f-4174-8ffb-c58a94eeb7c9" />
 
 **Exploratory Data Analysis in Databricks**
 
