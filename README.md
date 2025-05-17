@@ -2,13 +2,16 @@
 
 ## Table of Contents
 
-1. [Introduction and Background](#1-introduction-and-background)
-2. [AWS and Databricks Setup](#2-aws-and-databricks-setup)
-3. [Databricks ETL and Workflow Architecture](#3-databricks-etl-and-workflow-architecture)
-4. [Lambda Function as Orchestration Trigger](#4-lambda-function-as-orchestration-trigger)
-5. [Glue Crawler and Athena Table Creation](#5-glue-crawler-and-athena-table-creation)
-6. [Visualization and Machine Learning](#6-visualization-and-machine-learning)
-7. [Conclusion and Practical Significance](#7-conclusion-and-practical-significance)
+1. [Introduction and Background](#1-introduction-and-background)  
+2. [AWS and Databricks Setup](#2-aws-and-databricks-setup)  
+3. [Databricks ETL and Workflow Architecture](#3-databricks-etl-and-workflow-architecture)  
+   - [Business Rules for ETL Processing](#business-rules-for-etl-processing)  
+4. [Lambda Function as Orchestration Trigger](#4-lambda-function-as-orchestration-trigger)  
+5. [Glue Crawler and Athena Table Creation](#5-glue-crawler-and-athena-table-creation)  
+6. [Visualization and Machine Learning](#6-visualization-and-machine-learning)  
+7. [Graph Analytics with Neo4j AuraDB](#7-graph-analytics-with-neo4j-auradb)  
+8. [Conclusion and Practical Significance](#8-conclusion-and-practical-significance)
+
 
 ---
 
@@ -24,23 +27,23 @@ Our primary goal with this project is to build a **scalable, production-grade ET
 
 The Yelp dataset includes several domains such as:
 
-* **Business** — metadata about local businesses (name, location, categories, hours, attributes, etc.)
-* **Review** — user reviews for businesses including ratings, text, and feedback metrics (cool, funny, useful)
-* **User** — profiles of users, including social connections (friends), elite status, and compliments
+- **Business** — metadata about local businesses (name, location, categories, hours, attributes, etc.)
+- **Review** — user reviews for businesses including ratings, text, and feedback metrics (cool, funny, useful)
+- **User** — profiles of users, including social connections (friends), elite status, and compliments
 
 While the dataset is rich in content, its JSON format poses significant challenges for direct use in business intelligence platforms or analytical queries. This requires several preprocessing steps:
 
-* Parsing nested JSON structures
-* Flattening and cleaning text fields
-* Engineering derived features (e.g., sentiment score, weekly open hours, engagement metrics)
-* Normalizing data across multiple domains for relational joins
+- Parsing nested JSON structures
+- Flattening and cleaning text fields
+- Engineering derived features (e.g., sentiment score, weekly open hours, engagement metrics)
+- Normalizing data across multiple domains for relational joins
 
 The architecture we’ve designed ensures end-to-end automation:
 
-* A user simply drops a JSON file into an AWS S3 bucket.
-* A Lambda function detects the upload and triggers a Databricks ETL job.
-* After processing, results are written in Parquet format to another S3 bucket.
-* A Glue crawler catalogs the data so it can be queried in Athena and visualized in QuickSight.
+- A user simply drops a JSON file into an AWS S3 bucket.
+- A Lambda function detects the upload and triggers a Databricks ETL job.
+- After processing, results are written in Parquet format to another S3 bucket.
+- A Glue crawler catalogs the data so it can be queried in Athena and visualized in QuickSight.
 
 This design reflects the kind of automated, cloud-native pipelines used by large tech companies for continuous ingestion and transformation of big data.
 
@@ -57,6 +60,7 @@ The Yelp Big Data ETL & Analytics Project demonstrates how to:
 7. Support downstream ML use cases directly within Databricks.
 
 The result is a reusable reference architecture for real-time data engineering pipelines that convert raw semi-structured files into clean, powerful data assets ready for analytics and decision-making.
+
 
 **AWS and Databricks Setup**
 
@@ -141,6 +145,43 @@ UnifiedAnalytics (dependent on the completion of the first three tasks)
 This configuration created a Directed Acyclic Graph (DAG) of dependencies ensuring the UnifiedAnalytics notebook only runs after all domain-specific ETLs have finished successfully.
 
 This modular architecture ensures easy debugging, reusability, and scalability while adhering to modern data engineering best practices.
+### Business Rules for ETL Processing
+
+Each ETL script follows clearly defined business rules to ensure the data is clean, usable, and optimized for analytics. Below are human-readable explanations of how we handled the transformation for each domain:
+
+#### Common Rules:
+- **Flatten nested structures:** Since the original JSON data included deeply nested fields and arrays, we used PySpark functions to explode arrays and simplify nested structs into a flat table schema.
+- **Avoid complex data types:** We intentionally reduced the use of `struct` and `array` columns to ensure the final data is compatible with Athena, QuickSight, and Neo4j.
+- **Clean and normalize text fields:** This includes trimming whitespace, converting to lowercase, and standardizing null formats.
+
+#### Business ETL:
+- **Removed the `address` column** as it was not necessary for analytics and caused clutter in the schema.
+- **Dropped rows with null `business_id`**, as these are critical primary keys for joining and analytics.
+- **Filtered out businesses with missing `categories`**, since categories are essential for filtering and grouping businesses.
+- **Dropped rows with null `hours`**, ensuring only businesses with defined operating hours are retained for time-based analysis.
+- **Checked and documented null counts** across fields before making filtering decisions, ensuring decisions were data-driven.
+- **Maintained a flat schema** to simplify joins and ensure compatibility with downstream tools like Glue and Athena.
+
+#### Review ETL:
+- **Removed reviews without `user_id` or `business_id`** to ensure each review is joinable and has context.
+- **Created `engagement_score`** by summing the `useful`, `funny`, and `cool` metrics to represent overall interaction.
+- **Dropped raw feedback columns** (`useful`, `funny`, `cool`) after creating the composite metric to streamline the dataset.
+- **Applied VADER sentiment analysis** to generate sentiment scores from review text, enabling polarity-based analytics.
+- **Checked for nulls across all columns** to validate and clean the dataset before transformation or joins.
+
+#### User ETL:
+- **Calculated `engagement_compliments`** by summing the `useful`, `funny`, and `cool` columns to reflect overall user influence.
+- **Dropped unnecessary compliment subfields** and retained only key ones: `compliment_list`, `compliment_writer`, `compliment_note`, and `compliment_photos`.
+- **Removed raw interaction columns** (`useful`, `funny`, `cool`) after consolidation.
+- **Created a numeric `elite_years_count`** from the string field `elite`, representing how many years the user was an elite member.
+- **Validated nulls across the dataset** to ensure no corrupted records are included in downstream processing.
+
+#### UnifiedAnalytics:
+- **Joined datasets using `user_id` and `business_id`** as reliable foreign keys to connect user reviews with business metadata.
+- **Renamed overlapping column names** between user, review, and business tables to avoid schema conflicts (e.g., `name_user`, `name_business`).
+- **Performed left joins** to ensure that no reviews were dropped even if user or business metadata was partially missing.
+- **Validated schema consistency** after joining, ensuring compatibility with AWS Glue and Athena by enforcing clean column names and types.
+- **Overwrote existing unified table** to keep only the latest, cleanly joined dataset in storage.
 
 **Lambda Function as Orchestration Trigger**
 
@@ -289,21 +330,68 @@ Segment users based on review patterns and social connections
 This step extends the utility of the pipeline, transforming it from a reporting system into a powerful machine learning foundation.
 
 In summary, the data can now be used across two platforms — QuickSight for business visualizations and Databricks for advanced ML and analysis — providing full flexibility and utility for both technical and non-technical stakeholders.
+## 7. Graph Analytics with Neo4j AuraDB
 
-**Conclusion and Practical Significance**
+To support graph-based analysis and relationship modeling beyond tabular reporting, a parallel pipeline was built using Neo4j AuraDB.
 
-To conclude, the main aim of this project is to automate the entire ETL pipeline, ensuring data is cleaned, transformed, and made analytics-ready with minimal manual intervention. This solution is not only efficient but also mirrors what many corporate companies are using for real-time and batch data automation.
+### Why Graph? 
+Traditional tabular data structures struggle to efficiently model relationships between entities—like users and businesses—when the connections themselves are important. A graph database such as Neo4j:
 
-The system is designed to support both live data processing and batch uploads, ensuring that businesses can analyze up-to-date information—whether it changes every minute or every day. By simply dropping a new file into the S3 raw bucket, the rest of the process — including transformation, cataloging, and updating dashboards — is fully automated.
+- Enables fast traversal of relationships, such as friend-of-a-friend or category-based review networks.
+- Allows for graph algorithms like centrality, community detection, and pathfinding, which are useful for influencer analysis, recommendation engines, and localized trends.
+- Reflects real-world connections in a more intuitive and expressive way.
 
-This approach significantly reduces manual efforts, ensures data reliability, and enhances business agility by making fresh, actionable insights available at all times. The combination of AWS services and Databricks provides a scalable, cost-effective platform to run and manage this workflow.
+### GCP Workaround for AuraDB
+Due to Neo4j AuraDB’s restriction on direct access to AWS S3, micro-batch CSVs of cleaned Yelp datasets were exported to Google Cloud Storage (GCS). These were then accessed by Cypher scripts using `LOAD CSV` to ingest into AuraDB.
 
-Even large enterprises leverage this kind of infrastructure for:
+### Schema Highlights
+- **Nodes:**
+  - `User`: Yelp users
+  - `Business`: Local businesses
+  - `Review`: Written reviews
+  - `Category`, `City`, `State`, `Feature`: Lookup and dimension nodes
 
-Customer sentiment analysis
+- **Relationships:**
+  - `WROTE`: Connects users to the reviews they authored
+  - `REVIEWS`: Connects reviews to the businesses they describe
+  - `LOCATED_IN`, `IN_STATE`: Link businesses to their geographic locations
+  - `HAS_CATEGORY`, `OFFERS`: Describe business metadata and services
+  - `FRIENDS_WITH`: Represents bidirectional user connections
 
-Product and service feedback loops
+### Constraints and Design Rules
+- **Uniqueness Constraints:** Applied to all key node IDs (e.g., `user_id`, `business_id`, `review_id`) to avoid duplicate entities.
+- **Helper Constraints:** Applied to names in lookup tables (e.g., `Category`, `City`) to prevent duplication.
+- **Batch Processing:** Used `apoc.periodic.iterate` for high-volume ingestion to avoid memory issues.
+- **Merge Semantics:** Every node and relationship uses `MERGE` instead of `CREATE` to enforce idempotency and ensure no duplicates.
+- **Separation of Concerns:** Lookup nodes (cities, states, categories) were separated to support analytic flexibility and avoid redundancy.
 
-Internal performance evaluations
+### Cypher Script
+A full graph loading schema can be found in: [`neo4j_load/graph.cypher`](neo4j_load/graph.cypher)
 
-Ultimately, this architecture allows for the creation of a unified analytics environment that delivers high-quality data into the hands of analysts, data scientists, and decision-makers — supporting continuous business improvement and innovation.
+This script:
+- Creates constraints for key nodes
+- Ingests CSVs as nodes and relationships
+- Enables graph querying for community detection, centrality, sentiment analysis, etc.
+
+## 8. Conclusion and Practical Significance
+
+This project demonstrates the design and execution of a fully automated, scalable, and production-grade big data pipeline for transforming and analyzing semi-structured data at scale. By leveraging the Yelp Open Dataset, we built a cloud-native architecture that integrates AWS services (S3, Lambda, Glue, Athena, QuickSight), Databricks (for Spark-based ETL), and Neo4j AuraDB (for graph analytics).
+
+The solution showcases the following:
+
+- **Automation and Modularity:** The entire process—from file ingestion to analytics—is orchestrated with Lambda functions and modular ETL scripts. This allows for easy maintenance, extensibility, and real-time processing.
+- **Robust Data Transformation:** Complex nested JSONs were flattened, normalized, and enriched with engineered features such as sentiment scores and engagement metrics.
+- **Interoperability Across Tools:** Data was made queryable in Athena for BI via QuickSight, processed in Spark via Databricks for ML, and modeled in Neo4j for graph analytics.
+- **Cross-Cloud Adaptation:** The project highlights a creative solution to a platform limitation by exporting data to GCP for ingestion into Neo4j AuraDB, which lacks native S3 access.
+
+### Business Value
+
+This pipeline design mirrors real-world enterprise practices, where heterogeneous data sources, platform interoperability, and automation are critical. It supports downstream use cases such as:
+
+- Sentiment and customer engagement analytics
+- Elite user segmentation and loyalty tracking
+- Category-based performance and competitor benchmarking
+- Graph-based recommendations and community analysis
+
+By unifying different layers of data engineering, analytics, and graph modeling, this project stands as a robust blueprint for scalable, modern data infrastructure.
+
