@@ -29,6 +29,8 @@ In today’s data-driven business world, companies heavily rely on feedback, rev
 
 Our primary goal with this project is to build a **scalable, production-grade ETL pipeline** using **AWS cloud services and Databricks** that transforms this semi-structured Yelp data into analytics-ready tables. This pipeline must be automated, efficient, and capable of supporting both batch and real-time data loads. Once the transformed data is stored in a structured format, it will support querying, visualization, and machine learning use cases.
 
+![WhatsApp Image 2025-06-03 at 13 04 01](https://github.com/user-attachments/assets/70f0d909-c06d-400b-b810-c989b3af2f24)
+
 ### 1.2 Background
 
 The Yelp dataset includes several domains such as:
