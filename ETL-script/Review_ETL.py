@@ -1,110 +1,52 @@
-# review_etl_pipeline.py
-# Databricks notebook script to process Yelp review data from raw S3 to processed S3
 
-# ───────────────────────────────────────────────────────────────────────────────
-# Cell 1: Widgets & Domain Setup
-# ───────────────────────────────────────────────────────────────────────────────
-dbutils.widgets.removeAll()
-dbutils.widgets.text(
-    "raw_key",
-    defaultValue="Review/review_batch_1.json",
-    label="Raw S3 key to process"
+%pip install vaderSentiment
+from pyspark.sql import DataFrame
+from pyspark.sql.functions import (
+    col, trim, to_date, udf, when
 )
-
-raw_key = dbutils.widgets.get("raw_key") or "Review/review_batch_1.json"
-domain = raw_key.split("/", 1)[0]
-
-if domain != "Review":
-    print(f"Skipping Review notebook because domain={domain!r}")
-    dbutils.notebook.exit("SKIPPED")
-
-print(f"▶ domain={domain!r}, raw_key={raw_key!r}")
-
-# ───────────────────────────────────────────────────────────────────────────────
-# Cell 2: Mount S3 Buckets (Idempotent)
-# ───────────────────────────────────────────────────────────────────────────────
-def safe_mount(src, mp):
-    try:
-        dbutils.fs.mount(source=src, mount_point=mp)
-        print(f"Mounted {src} → {mp}")
-    except Exception:
-        print(f"{src} already mounted or failed")
-
-safe_mount("s3a://yelprawdata", "/mnt/yelprawdata")
-safe_mount("s3a://yelpprocesseddata", "/mnt/yelpprocesseddata")
-
-display(dbutils.fs.ls(f"/mnt/yelprawdata/{domain}"))
-
-# ───────────────────────────────────────────────────────────────────────────────
-# Cell 3: Library Installation & Imports
-# ───────────────────────────────────────────────────────────────────────────────
-%pip install --quiet vaderSentiment
-
-from pyspark.sql.functions import col, when, udf, to_timestamp, to_date, sum as _sum
 from pyspark.sql.types import FloatType
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
-# ───────────────────────────────────────────────────────────────────────────────
-# Cell 4: Load, Clean & Transform Review Data
-# ───────────────────────────────────────────────────────────────────────────────
-# Load review data
-df_review = spark.read.json(f"/mnt/yelprawdata/{domain}/*.json")
+def read_review_table(table_name: str) -> DataFrame:
+    return spark.read.table(table_name)
 
-# Display schema and sample records
-df_review.printSchema()
-display(df_review.limit(5))
+def add_sentiment_score(df: DataFrame) -> DataFrame:
+    analyzer = SentimentIntensityAnalyzer()
 
-# Count null values in each column
-display(
-    df_review.select([
-        _sum(when(col(c).isNull(), 1).otherwise(0)).alias(c)
-        for c in df_review.columns
-    ])
-)
+    def get_vader_score(text):
+        return float(analyzer.polarity_scores(text)["compound"]) if text else 0.0
 
-# Compute engagement_score
-df_review = (
-    df_review
-    .withColumn("engagement_score", col("useful") + col("funny") + col("cool"))
-    .drop("useful", "funny", "cool")
-)
-
-# Sentiment analysis using VADER
-analyzer = SentimentIntensityAnalyzer()
-vader_udf = udf(lambda t: float(analyzer.polarity_scores(t)["compound"]) if t else 0.0, FloatType())
-
-df_review = (
-    df_review
-    .withColumn("sentiment_score", vader_udf(col("text")))
-    .withColumn(
+    vader_udf = udf(get_vader_score, FloatType())
+    df = df.withColumn("sentiment_score", vader_udf(col("text")))
+    df = df.withColumn(
         "sentiment_label",
         when(col("sentiment_score") >= 0.05, "positive")
         .when(col("sentiment_score") <= -0.05, "negative")
         .otherwise("neutral")
     )
-)
+    return df
 
-display(df_review.select("review_id", "sentiment_score", "sentiment_label").limit(5))
+def clean_review_columns(df: DataFrame) -> DataFrame:
+    # Trim all string columns
+    trimmed_df = df.select([
+        trim(col(c)).alias(c) if dict(df.dtypes)[c] == "string" else col(c)
+        for c in df.columns
+    ])
+    return trimmed_df
 
-# Parse and format timestamp
-df_review = (
-    df_review
-    .withColumn("ts", to_timestamp(col("date"), "yyyy-MM-dd HH:mm:ss"))
-    .withColumn("date", to_date(col("ts")))
-    .drop("ts", "text")
-)
+def transform_review_date(df: DataFrame) -> DataFrame:
+    return df.withColumn("date", to_date(col("date")))
 
-df_review.printSchema()
-display(df_review.limit(5))
+def drop_text_column(df: DataFrame) -> DataFrame:
+    return df.drop("text")
 
-# ───────────────────────────────────────────────────────────────────────────────
-# Cell 5: Write Processed Data to S3
-# ───────────────────────────────────────────────────────────────────────────────
-output_path = f"/mnt/yelpprocesseddata/{domain}processed"
+def write_review_to_s3(df: DataFrame, output_path: str):
+    df.write.mode("overwrite").parquet(output_path)
 
-df_review.write.mode("append").parquet(output_path)
-print(f"Wrote processed reviews to {output_path}")
-
-# Verify output
-display(dbutils.fs.ls(output_path))
-display(spark.read.parquet(output_path).limit(20))
+# Execution
+review_df = read_review_table("aything.default.review_ext")
+review_df = add_sentiment_score(review_df)
+review_df = drop_text_column(review_df)
+review_df = transform_review_date(review_df)
+review_df = clean_review_columns(review_df)
+review_df.show()
