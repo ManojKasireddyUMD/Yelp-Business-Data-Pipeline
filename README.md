@@ -4,7 +4,7 @@ A fully automated, production-grade data pipeline that transforms raw Yelp JSON 
 
 **Tech Stack**: PySpark · AWS S3 · Lambda · Glue · Athena · QuickSight · Neo4j · Databricks  
 **Key Features**: Modular ETL · Event-Driven Ingestion · Sentiment Analysis · Graph Modeling · Visual Dashboards
-
+![image](https://github.com/user-attachments/assets/63aa793d-4ad8-4687-b871-f73bff2b06ce)
 
 ## Table of Contents
 
