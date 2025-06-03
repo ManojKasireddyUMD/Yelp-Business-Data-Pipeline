@@ -1,0 +1,52 @@
+import boto3
+import os
+import json
+from typing import List
+
+def get_s3_client():
+    """Returns a boto3 S3 client using environment credentials or IAM role."""
+    return boto3.client(
+        's3',
+        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY")
+    )
+
+def read_json_lines(file_path: str) -> List[dict]:
+    """Reads a local file with JSON lines and returns a list of records."""
+    with open(file_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            try:
+                yield json.loads(line)
+            except json.JSONDecodeError:
+                continue  # skip malformed lines
+
+def upload_batch(s3_client, bucket_name: str, domain_name: str, batch_num: int, batch: List[dict]):
+    """Uploads a batch of records to S3."""
+    key = f"{domain_name}/batch_{batch_num}.json"
+    body = '\n'.join(json.dumps(record) for record in batch)
+    
+    s3_client.put_object(Bucket=bucket_name, Key=key, Body=body.encode('utf-8'))
+    print(f"✅ Uploaded {key} with {len(batch)} records")
+
+def stream_microbatches(domain_name: str, local_file: str, batch_size: int, bucket_name: str):
+    """Main ETL function to stream JSON records in microbatches to S3."""
+    s3_client = get_s3_client()
+    batch = []
+    batch_num = 1
+
+    for record in read_json_lines(local_file):
+        batch.append(record)
+        if len(batch) >= batch_size:
+            upload_batch(s3_client, bucket_name, domain_name, batch_num, batch)
+            batch = []
+            batch_num += 1
+
+    if batch:
+        upload_batch(s3_client, bucket_name, domain_name, batch_num, batch)
+
+# ---- Example Usage ----
+BUCKET_NAME = "yelp-raw-data-storage"
+
+stream_microbatches("business", "/content/drive/MyDrive/Enterprise Project/business.json", 50000, BUCKET_NAME)
+stream_microbatches("user", "/content/drive/MyDrive/Enterprise Project/user.json", 50000, BUCKET_NAME)
+stream_microbatches("review", "/content/drive/MyDrive/Enterprise Project/review.json", 100000, BUCKET_NAME)
